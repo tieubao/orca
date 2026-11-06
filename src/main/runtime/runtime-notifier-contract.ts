@@ -1,4 +1,5 @@
 import type {
+  EditorFileRevealTarget,
   RuntimeEditorTabReveal,
   RuntimeFileOpenPosition
 } from '../../shared/runtime-file-contracts'
@@ -131,6 +132,8 @@ export type RuntimeNotifier = {
   focusTerminal(tabId: string, worktreeId: string, leafId?: string | null): void
   /** Raises the window onto a pane it shows; resolves false when the window does not know the worktree. */
   revealTerminalPane?(target: TerminalPaneRevealTarget): Promise<boolean>
+  /** Opens a paired server's file in the window and raises it; resolves false when the window does not know the worktree. */
+  revealEditorFile?(target: EditorFileRevealTarget): Promise<boolean>
   focusEditorTab?(tabId: string, worktreeId: string): void
   closeSessionTab?(tabId: string, worktreeId: string): void | Promise<void>
   moveSessionTab?(worktreeId: string, move: RuntimeMobileSessionTabMove): void

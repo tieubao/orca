@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import { app, ipcMain, type BrowserWindow } from 'electron'
 
+import type { EditorFileRevealTarget } from '../../shared/runtime-file-contracts'
 import type {
   TerminalPaneRevealReply,
   TerminalPaneRevealTarget
@@ -13,11 +14,28 @@ import { focusExistingMainWindow } from './focus-existing-window'
 const TERMINAL_PANE_REVEAL_TIMEOUT_MS = 10_000
 
 /** Shows a pane in the window, then raises the window; resolves false when it does not know the worktree. */
-export async function revealTerminalPaneInWindow(
+export function revealTerminalPaneInWindow(
   mainWindow: BrowserWindow,
   target: TerminalPaneRevealTarget
 ): Promise<boolean> {
-  const revealed = await requestTerminalPaneRevealFromRenderer(mainWindow, target)
+  return revealInWindow(mainWindow, 'ui:revealTerminalPane', 'terminal_reveal_timeout', target)
+}
+
+/** Opens a paired server's file in the window, then raises it; resolves false when it does not know the worktree. */
+export function revealEditorFileInWindow(
+  mainWindow: BrowserWindow,
+  target: EditorFileRevealTarget
+): Promise<boolean> {
+  return revealInWindow(mainWindow, 'ui:revealEditorFile', 'editor_file_reveal_timeout', target)
+}
+
+async function revealInWindow(
+  mainWindow: BrowserWindow,
+  channel: string,
+  timeoutError: string,
+  target: object
+): Promise<boolean> {
+  const revealed = await requestRevealFromRenderer(mainWindow, channel, timeoutError, target)
   if (revealed) {
     focusExistingMainWindow({
       app,
@@ -30,9 +48,12 @@ export async function revealTerminalPaneInWindow(
   return revealed
 }
 
-function requestTerminalPaneRevealFromRenderer(
+// Both reveal kinds share one reply channel: the request ID, not the channel, pairs a reply to its caller.
+function requestRevealFromRenderer(
   mainWindow: BrowserWindow,
-  target: TerminalPaneRevealTarget
+  channel: string,
+  timeoutError: string,
+  target: object
 ): Promise<boolean> {
   if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
     return Promise.reject(new Error('renderer_unavailable'))
@@ -59,7 +80,7 @@ function requestTerminalPaneRevealFromRenderer(
     }
     const onRendererUnavailable = (): void => finish(new Error('renderer_unavailable'))
     const timeout = setTimeout(
-      () => finish(new Error('terminal_reveal_timeout')),
+      () => finish(new Error(timeoutError)),
       TERMINAL_PANE_REVEAL_TIMEOUT_MS
     )
     const onReply = (event: Electron.IpcMainEvent, reply: TerminalPaneRevealReply): void => {
@@ -78,7 +99,7 @@ function requestTerminalPaneRevealFromRenderer(
       addFanoutListener(ipcMain, 'ui:terminalPaneRevealReply', onReply)
     )
     try {
-      webContents.send('ui:revealTerminalPane', { ...target, requestId })
+      webContents.send(channel, { ...target, requestId })
     } catch {
       finish(new Error('renderer_unavailable'))
     }

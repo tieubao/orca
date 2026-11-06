@@ -55,6 +55,10 @@ async function loadRelay() {
   return (await import('./terminal-pane-reveal-relay')).revealTerminalPaneInWindow
 }
 
+async function loadFileRelay() {
+  return (await import('./terminal-pane-reveal-relay')).revealEditorFileInWindow
+}
+
 function reply(sender: unknown, requestId: string, revealed: boolean): void {
   ipcEmitter.emit('ui:terminalPaneRevealReply', { sender }, { requestId, revealed })
 }
@@ -212,6 +216,62 @@ describe('revealTerminalPaneInWindow', () => {
       await assertion
       expect(ipcEmitter.listenerCount('ui:terminalPaneRevealReply')).toBe(0)
       expect(mocks.focusExistingMainWindow).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('revealEditorFileInWindow', () => {
+  const fileTarget = {
+    worktreeId: 'repo-1::/srv/app',
+    filePath: '/srv/app/src/a.ts',
+    relativePath: 'src/a.ts',
+    executionHostId: 'runtime:env-1'
+  } as const
+
+  beforeEach(() => {
+    ipcEmitter.removeAllListeners()
+    mocks.focusExistingMainWindow.mockReset()
+  })
+
+  it('asks the renderer on its own channel, then raises the window on a yes', async () => {
+    const revealEditorFileInWindow = await loadFileRelay()
+    const { webContents, mainWindow } = createWindow()
+    const pending = revealEditorFileInWindow(mainWindow, fileTarget)
+
+    const [channel, request] = webContents.send.mock.calls[0] ?? []
+    expect(channel).toBe('ui:revealEditorFile')
+    expect(request).toMatchObject(fileTarget)
+    reply(webContents, request?.requestId ?? '', true)
+
+    await expect(pending).resolves.toBe(true)
+    expect(mocks.focusExistingMainWindow).toHaveBeenCalledOnce()
+  })
+
+  it('leaves the window alone when the renderer does not know the worktree', async () => {
+    const revealEditorFileInWindow = await loadFileRelay()
+    const { webContents, mainWindow } = createWindow()
+    const pending = revealEditorFileInWindow(mainWindow, fileTarget)
+
+    reply(webContents, webContents.send.mock.calls[0]?.[1].requestId ?? '', false)
+
+    await expect(pending).resolves.toBe(false)
+    expect(mocks.focusExistingMainWindow).not.toHaveBeenCalled()
+  })
+
+  it('names the file reveal when the renderer never answers', async () => {
+    vi.useFakeTimers()
+    try {
+      const revealEditorFileInWindow = await loadFileRelay()
+      const { mainWindow } = createWindow()
+      const assertion = expect(revealEditorFileInWindow(mainWindow, fileTarget)).rejects.toThrow(
+        'editor_file_reveal_timeout'
+      )
+
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      await assertion
     } finally {
       vi.useRealTimers()
     }

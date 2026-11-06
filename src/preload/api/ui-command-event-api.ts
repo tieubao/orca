@@ -1,4 +1,5 @@
 import type {
+  EditorFileRevealRequest,
   RuntimeEditorTabReveal,
   RuntimeFileOpenPosition
 } from '../../shared/runtime-file-contracts'
@@ -220,6 +221,7 @@ export type UiCommandEventApi = {
   onAgentLaunchPaneVerdict: (callback: (data: AgentLaunchPaneVerdictEvent) => void) => () => void
   onLaunchRecipe: (callback: (data: PaneLaunchRecipe) => void) => () => void
   onRevealTerminalPane: (callback: (data: TerminalPaneRevealRequest) => void) => () => void
+  onRevealEditorFile: (callback: (data: EditorFileRevealRequest) => void) => () => void
   replyTerminalPaneReveal: (reply: TerminalPaneRevealReply) => void
   onSplitTerminal: (
     callback: (data: {

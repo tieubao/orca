@@ -2,6 +2,7 @@ import { defineMethod, defineStreamingMethod } from '../core'
 import { runFileWatchStream } from './file-watch-stream-lifecycle'
 import { FILE_MUTATION_METHODS } from './files-mutation-methods'
 import { dirListingPageCache } from './files-read-dir-page'
+import { FILE_REVEAL_METHODS } from './files-reveal-methods'
 import { FILE_STAGED_SAVE_METHODS } from './files-staged-save-methods'
 import {
   assertDirListingWithinRemoteBudget,
@@ -96,6 +97,7 @@ export const FILE_METHODS = [
         ...(params.oldPath ? ([params.oldPath] as const) : [])
       )
   }),
+  ...FILE_REVEAL_METHODS,
   defineMethod({
     name: 'files.read',
     permission: 'workspace',

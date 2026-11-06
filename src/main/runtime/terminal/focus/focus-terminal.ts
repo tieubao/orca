@@ -1,6 +1,10 @@
 import { OrcaRuntimeWithWaitForLeafPtyId } from '../view/renderer-terminal-snapshot'
 import type { RuntimeTerminalFocus } from '../../../../shared/runtime-types'
 import type {
+  EditorFileRevealTarget,
+  RuntimeEditorFileReveal
+} from '../../../../shared/runtime-file-contracts'
+import type {
   RuntimeTerminalReveal,
   TerminalPaneRevealTarget
 } from '../../../../shared/workspace-layout/terminal-pane-reveal'
@@ -181,6 +185,15 @@ export abstract class OrcaRuntimeWithFocusTerminal extends OrcaRuntimeWithWaitFo
       throw new Error('renderer_unavailable')
     }
     return { ...target, navigated: await notifier.revealTerminalPane(target) }
+  }
+
+  // Beside revealTerminalPane: both show a paired server's item in this machine's window.
+  async revealEditorFile(target: EditorFileRevealTarget): Promise<RuntimeEditorFileReveal> {
+    const notifier = this.notifier
+    if (!notifier?.revealEditorFile) {
+      throw new Error('renderer_unavailable')
+    }
+    return { ...target, navigated: await notifier.revealEditorFile(target) }
   }
 
   protected getPtyIdsForExplicitTabClose(worktreeId: string, tabId: string): string[] {

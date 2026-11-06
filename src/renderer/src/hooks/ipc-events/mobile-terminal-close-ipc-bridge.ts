@@ -12,7 +12,13 @@ import { isFloatingWorkspaceId } from '../../../../shared/floating-workspace-wor
 import { useAppStore } from '../../store'
 import { afterLayoutFrame, layoutFramesFlowing } from '@/runtime/layout-frame-position'
 import { framesDrawWorkspace } from '@/runtime/workspace-layout-frame-drawn-workspaces'
-import type { RuntimeEditorTabReveal } from '../../../../shared/runtime-file-contracts'
+import type {
+  RuntimeEditorTabReveal,
+  RuntimeFileOpenPosition
+} from '../../../../shared/runtime-file-contracts'
+import { parseExecutionHostId } from '../../../../shared/execution-host'
+import { activateAndRevealWorkspace } from '@/lib/worktree-activation'
+import { runtimeEnvironmentIdUnlessTwin } from '@/lib/resolve-owner'
 import type { AppState } from '../../store/types'
 import type { EditorTabSelection } from '../../store/slices/editor/types/open-file'
 import {
@@ -80,28 +86,40 @@ export function registerMobileAndTerminalCloseIpcBridge(
   requestSleepingAgentWake: (worktreeId: string) => void
 ): void {
   const positionFile = createRuntimeFilePositionQueue(unsubs)
-  unsubs.push(
-    window.api.ui.onOpenFileFromMobile(
-      ({ worktreeId, filePath, relativePath, runtimeEnvironmentId, navigation, position }) => {
-        const basename = relativePath.split(/[\\/]/).pop() || relativePath
-        openRuntimeEditorTab(worktreeId, navigation, (store, selection) => {
-          // Use File Explorer’s creation path so grouped ordering and markdown bridges stay consistent.
-          const fileId = store.openFile(
-            {
-              filePath,
-              relativePath,
-              worktreeId,
-              language: detectLanguage(basename),
-              runtimeEnvironmentId,
-              mode: 'edit'
-            },
-            { selection }
-          )
-          positionFile(fileId, position, selection === 'focus')
-        })
-      }
-    )
-  )
+  type OpenFileTab = {
+    worktreeId: string
+    filePath: string
+    relativePath: string
+    runtimeEnvironmentId?: string | null
+    navigation?: RuntimeNavigationTarget
+    position?: RuntimeFileOpenPosition
+  }
+  const openFileTab = ({
+    worktreeId,
+    filePath,
+    relativePath,
+    runtimeEnvironmentId,
+    navigation,
+    position
+  }: OpenFileTab): void => {
+    const basename = relativePath.split(/[\\/]/).pop() || relativePath
+    openRuntimeEditorTab(worktreeId, navigation, (store, selection) => {
+      // Use File Explorer’s creation path so grouped ordering and markdown bridges stay consistent.
+      const fileId = store.openFile(
+        {
+          filePath,
+          relativePath,
+          worktreeId,
+          language: detectLanguage(basename),
+          runtimeEnvironmentId,
+          mode: 'edit'
+        },
+        { selection }
+      )
+      positionFile(fileId, position, selection === 'focus')
+    })
+  }
+  unsubs.push(window.api.ui.onOpenFileFromMobile(openFileTab))
 
   // Show main-owned tabs after their frame draws; channel stays optional for older preloads surviving reload.
   if (window.api.ui.onRevealEditorTabFromRuntime) {
@@ -129,28 +147,73 @@ export function registerMobileAndTerminalCloseIpcBridge(
     )
   }
 
-  unsubs.push(
-    window.api.ui.onOpenDiffFromMobile(
-      ({
-        worktreeId,
-        filePath,
-        relativePath,
-        staged,
+  type OpenDiffTab = {
+    worktreeId: string
+    filePath: string
+    relativePath: string
+    staged: boolean
+    runtimeEnvironmentId?: string | null
+    navigation?: RuntimeNavigationTarget
+    oldPath?: string
+  }
+  const openDiffTab = ({
+    worktreeId,
+    filePath,
+    relativePath,
+    staged,
+    runtimeEnvironmentId,
+    navigation,
+    oldPath
+  }: OpenDiffTab): void => {
+    openRuntimeEditorTab(worktreeId, navigation, (store, selection) =>
+      // Why: mobile renders diffs from metadata; the editor-local Changes shortcut would send plain markdown back to mobile.
+      store.openDiff(worktreeId, filePath, relativePath, detectLanguage(relativePath), staged, {
         runtimeEnvironmentId,
-        navigation,
-        oldPath
-      }) => {
-        openRuntimeEditorTab(worktreeId, navigation, (store, selection) =>
-          // Why: mobile renders diffs from metadata; the editor-local Changes shortcut would send plain markdown back to mobile.
-          store.openDiff(worktreeId, filePath, relativePath, detectLanguage(relativePath), staged, {
-            runtimeEnvironmentId,
-            selection,
-            ...(oldPath ? { oldPath } : {})
-          })
-        )
-      }
+        selection,
+        ...(oldPath ? { oldPath } : {})
+      })
     )
-  )
+  }
+  unsubs.push(window.api.ui.onOpenDiffFromMobile(openDiffTab))
+
+  // Optional so an older preload surviving an in-place renderer reload keeps the other channels.
+  if (window.api.ui.onRevealEditorFile) {
+    unsubs.push(
+      window.api.ui.onRevealEditorFile(({ requestId, diff, ...target }) => {
+        let revealed = false
+        try {
+          const activated = activateAndRevealWorkspace(
+            target.worktreeId,
+            target.executionHostId ? { executionHostId: target.executionHostId } : undefined
+          )
+          if (activated !== false) {
+            const host = parseExecutionHostId(target.executionHostId)
+            const open = {
+              worktreeId: target.worktreeId,
+              filePath: target.filePath,
+              relativePath: target.relativePath,
+              runtimeEnvironmentId:
+                host?.kind === 'runtime'
+                  ? host.environmentId
+                  : runtimeEnvironmentIdUnlessTwin(useAppStore.getState(), target.worktreeId),
+              navigation: 'host' as const
+            }
+            if (diff) {
+              openDiffTab({ ...open, ...diff })
+            } else {
+              openFileTab({ ...open, position: target.position })
+            }
+            revealed = true
+          }
+        } catch (error) {
+          console.error('Failed to reveal editor file:', error)
+        } finally {
+          // Why: main holds the caller's RPC open until this reply, so a throw must still answer.
+          window.api.ui.replyTerminalPaneReveal({ requestId, revealed })
+        }
+      })
+    )
+  }
 
   unsubs.push(
     window.api.ui.onCloseTerminal((target) => {

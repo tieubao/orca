@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { QUICK_OPEN_REMOTE_QUERY_MAX_CODE_UNITS } from '../quick-open-path-search'
 import { RUNTIME_NAVIGATION_TARGETS } from '../runtime-navigation'
 import { FileOpen, WorktreeSelector } from './files-target-params'
+import { OptionalExecutionHostId } from './worktree-params'
 
 export const FilePathsExist = WorktreeSelector.extend({
   relativePaths: z.array(z.string()).max(PATH_EXISTENCE_BATCH_MAX)
@@ -65,6 +66,22 @@ export const FileOpenDiff = FileOpenTarget.extend({
   staged: z.boolean().optional(),
   oldPath: z.string().optional()
 })
+
+/** `files.reveal` takes the paths of the paired server that owns the file; this host has no selector for it. */
+export const FileReveal = z
+  .object({
+    worktreeId: z.string().min(1).max(1024),
+    filePath: z.string().min(1).max(4096),
+    relativePath: z.string().min(1).max(4096),
+    executionHostId: OptionalExecutionHostId,
+    line: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    column: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    diff: z.object({ staged: z.boolean(), oldPath: z.string().max(4096).optional() }).optional()
+  })
+  .refine((params) => params.column === undefined || params.line !== undefined, {
+    message: 'column requires line',
+    path: ['column']
+  })
 
 export const DocPreviewFileRead = FileOpen.extend({
   entryRelativePath: z.string().min(1),

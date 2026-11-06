@@ -1,4 +1,5 @@
 import type { RasterImageDimensions } from './raster-image-dimensions'
+import type { ExecutionHostId } from './execution-host'
 import type { RuntimeNavigationTarget } from './runtime-navigation'
 
 export type RuntimeFileListEntry = {
@@ -37,6 +38,22 @@ export type RuntimeEditorFileOpen = {
   navigation?: RuntimeNavigationTarget
   position?: RuntimeFileOpenPosition
 }
+
+/** A file a paired server owns, to show in this machine's window; paths are the server's. */
+export type EditorFileRevealTarget = {
+  worktreeId: string
+  filePath: string
+  relativePath: string
+  /** The host that owns the worktree, for when the same id is known on more than one host. */
+  executionHostId: ExecutionHostId | null
+  position?: RuntimeFileOpenPosition
+  diff?: { staged: boolean; oldPath?: string }
+}
+
+export type EditorFileRevealRequest = EditorFileRevealTarget & { requestId: string }
+
+/** `navigated` is false when this window does not know the worktree. */
+export type RuntimeEditorFileReveal = EditorFileRevealTarget & { navigated: boolean }
 
 /** `frameSeq`: the layout stream position whose frame draws the tab. */
 export type RuntimeEditorTabReveal = RuntimeEditorFileOpen & { tabId: string; frameSeq?: number }

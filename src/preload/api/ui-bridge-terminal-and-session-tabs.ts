@@ -1,4 +1,5 @@
 import type {
+  EditorFileRevealRequest,
   RuntimeEditorTabReveal,
   RuntimeFileOpenPosition
 } from '../../shared/runtime-file-contracts'
@@ -131,6 +132,12 @@ export const uiTerminalAndSessionTabsApi = {
       callback(data)
     ipcRenderer.on('ui:revealTerminalPane', listener)
     return () => ipcRenderer.removeListener('ui:revealTerminalPane', listener)
+  },
+  onRevealEditorFile: (callback: (data: EditorFileRevealRequest) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: EditorFileRevealRequest) =>
+      callback(data)
+    ipcRenderer.on('ui:revealEditorFile', listener)
+    return () => ipcRenderer.removeListener('ui:revealEditorFile', listener)
   },
   replyTerminalPaneReveal: (reply: TerminalPaneRevealReply): void => {
     ipcRenderer.send('ui:terminalPaneRevealReply', reply)
