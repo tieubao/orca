@@ -24,6 +24,7 @@ async function run(
 ) {
   vi.spyOn(console, 'log').mockImplementation(() => {})
   const call = vi.fn().mockResolvedValue(openResponse())
+  const focusFlags: [string, string | boolean][] = options.focus ? [['focus', true]] : []
   const client = new RuntimeClient('/tmp/orca-file-test', 60_000, null, null)
   vi.spyOn(client, 'call').mockImplementation(call)
   vi.spyOn(client, 'isRemote', 'get').mockReturnValue(options.isRemote)
@@ -34,7 +35,7 @@ async function run(
     flags: new Map<string, string | boolean>([
       ['path', 'src/a.ts'],
       ['worktree', 'id:wt-1'],
-      ...(options.focus ? ([['focus', true]] as [string, boolean][]) : []),
+      ...focusFlags,
       ...(options.extra ?? [])
     ]),
     client,
