@@ -35,6 +35,7 @@ import { createPairingRelayLogger } from './pairing-relay-log'
 import { redactSocketEndpoint } from './socket-event-debug'
 import { assertCommittedInstall, relayHost } from './pairing-relay-host'
 import { recordHostDescriptorFromStatus } from './host-descriptor-recorder'
+import { exchangePairingTicket } from './pairing-ticket-exchange'
 import type { HostStatusReply } from './host-status-reply-schema'
 
 export type PreProfilePairingAttempt = {
@@ -56,6 +57,7 @@ type Dependencies = {
   recoverPendingJournal: () => Promise<void>
   writeCredentialBundle: typeof writeMobileRelayCredentialBundle
   recordDescriptorFromStatus: typeof recordHostDescriptorFromStatus
+  exchangeTicket: typeof exchangePairingTicket
   now: () => number
   platform: string
 }
@@ -73,6 +75,7 @@ const defaultDependencies: Dependencies = {
   recoverPendingJournal: () => settleMobileRelayPairingRecovery(PENDING_RECOVERY_WAIT_MS),
   writeCredentialBundle: writeMobileRelayCredentialBundle,
   recordDescriptorFromStatus: recordHostDescriptorFromStatus,
+  exchangeTicket: exchangePairingTicket,
   now: Date.now,
   platform: Platform.OS
 }
@@ -233,8 +236,19 @@ async function runPairing(
   log('success', 'Pairing path selected', `winner: ${winner.path}`)
   assertActive(isDisposed)
 
+  // Last call on the winning socket: once the phone signs in with its own token the scanned one stops working.
+  const exchangeTicket = (): Promise<string> =>
+    dependencies.exchangeTicket({
+      client: winner.client,
+      status: winner.status,
+      ticket: offer.deviceToken,
+      log
+    })
+
   if (!journal) {
-    await dependencies.savePairedHost(baseHost(offer, hostId, hostName, now))
+    const deviceToken = await exchangeTicket()
+    assertActive(isDisposed)
+    await dependencies.savePairedHost({ ...baseHost(offer, hostId, hostName, now), deviceToken })
     recordWinnerDescriptor(dependencies, hostId, winner.status)
     return { hostId }
   }
@@ -258,7 +272,9 @@ async function runPairing(
     }
     // Log the refusal code because LAN-only success otherwise hides why relay was unavailable.
     log('info', 'Relay: desktop will not serve relay pairing', provision.error.code)
-    await dependencies.savePairedHost(baseHost(offer, hostId, hostName, now))
+    const deviceToken = await exchangeTicket()
+    assertActive(isDisposed)
+    await dependencies.savePairedHost({ ...baseHost(offer, hostId, hostName, now), deviceToken })
     await dependencies.clearJournal(journal.metadata.journalId)
     recordWinnerDescriptor(dependencies, hostId, winner.status)
     return { hostId }
@@ -273,11 +289,32 @@ async function runPairing(
     throw new Error('desktop returned no relay endpoint after credential install')
   }
   assertActive(isDisposed)
+  journal = await adoptExchangedToken(journal, await exchangeTicket(), dependencies)
+  assertActive(isDisposed)
   await dependencies.writeCredentialBundle(promotePairingJournalCredential({ journal, installed }))
   await dependencies.savePairedHost(relayHost(journal, endpoints.relay))
   await dependencies.clearJournal(journal.metadata.journalId)
   recordWinnerDescriptor(dependencies, hostId, winner.status)
   return { hostId }
+}
+
+// Recovery republishes from the journal, so it must hold the exchanged token before the host does.
+// If that write fails, keep the scanned token everywhere: the desktop still accepts it.
+async function adoptExchangedToken(
+  journal: MobileRelayPairingJournal,
+  deviceToken: string,
+  dependencies: Dependencies
+): Promise<MobileRelayPairingJournal> {
+  if (deviceToken === journal.secrets.deviceToken) {
+    return journal
+  }
+  const exchanged = { ...journal, secrets: { ...journal.secrets, deviceToken } }
+  try {
+    await dependencies.saveJournal(exchanged)
+    return exchanged
+  } catch {
+    return journal
+  }
 }
 
 // After save, record descriptors on the same serialized chain so pairing returns the adopted machine name.
